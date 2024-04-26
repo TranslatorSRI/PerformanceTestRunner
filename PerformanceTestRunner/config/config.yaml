@@ -1,0 +1,84 @@
+---
+# See also existing python-code style configuration files:
+#
+#   deploy/settings.py
+#   tr_sys/tr_sys/settings.py
+#
+httpclients:
+# Maps inforesid to various attributes necessary for making a service call.
+#
+# What is infores id?  It is a registered of identities in Translator for identifying services (and a few other things):
+#     https://docs.google.com/spreadsheets/d/1Ak1hRqlTLr1qa-7O0s5bqeTHukj9gSLQML1-lg6xIHM/edit?pli=1#gid=293462374
+#
+  infores:aragorn:
+    # https://aragorn.renci.org/1.2
+    endpoint: asyncquery 
+    params:
+  # MW says aragorn_exp_app is experimental.  If so, we don't need a second official infores key.
+  #   https://aragorn.renci.org/query
+  infores:aragorn-ranker-exp:
+    method: query
+    params:
+  infores:arax:
+    endpoint: asyncquery 
+    params:
+  infores:biothings-explorer:
+    endpoint: asyncquery 
+    params:
+  infores:explanatory-agent:
+    endpoint: query 
+    params:
+  infores:explanatory-agent-creative-mode:
+    endpoint: asyncquery
+    params:
+  infores:improving-agent:
+    endpoint: query 
+    params:
+  infores:example:
+    endpoint: query 
+    params:
+  infores:robokop:
+    endpoint: asyncquery
+    params:
+  infores:unsecret-agent:
+    endpoint: query 
+    params:
+  infores:workflow-runner:
+    endpoint: query 
+    params:
+  infores:cqs:
+    endpoint: asyncquery
+    params:
+  infores:automat-cam-kp:
+    endpoint: query 
+    params: limit=100
+  infores:connections-hypothesis:
+    endpoint: query 
+    params:
+  infores:cohd:
+    endpoint: query 
+    params:
+  infores:genetics-data-provider:
+    endpoint: query 
+    params:
+  infores:icees-kg:
+    endpoint: query
+    params: reasoner=true&verbose=false
+  infores:molepro:
+    endpoint: query 
+    params:
+  infores:openpredict:
+    endpoint: query 
+    params:
+  infores:automat-text-mining-provider:
+    endpoint: query 
+    params:
+
+inactive_clients:
+  - infores:aragorn-ranker-exp
+  - infores:tr_ara_ncats
+  - infores:tr_ara_wfr
+  - infores:icees-pcd
+  - infores:icees-dili
+  - infores:icees-asthma
+  - infores:robokop

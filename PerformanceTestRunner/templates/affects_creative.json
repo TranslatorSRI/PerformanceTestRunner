@@ -1,0 +1,44 @@
+{
+    "message": {
+        "query_graph": {
+            "nodes": {
+                "ON": {
+                    "ids": [],
+                    "categories": [
+                        "biolink:Gene"
+                    ]
+                },
+                "SN": {
+                    "ids": [],
+                    "categories": [
+                        "biolink:ChemicalEntity"
+                    ]
+                }
+            },
+            "edges": {
+                "t_edge": {
+                    "object": "ON",
+                    "subject": "SN",
+                    "predicates": [
+                        "biolink:affects"
+                    ],
+                    "knowledge_type": "inferred",
+                    "qualifier_constraints": [
+                        {
+                            "qualifier_set": [
+                                {
+                                    "qualifier_type_id": "biolink:object_aspect_qualifier",
+                                    "qualifier_value": ""
+                                },
+                                {
+                                    "qualifier_type_id": "biolink:object_direction_qualifier",
+                                    "qualifier_value": ""
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}

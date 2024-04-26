@@ -1,0 +1,29 @@
+---
+# Maps inforesid to a url in the style of the "servers" field of swagger/openapi/smartapi.
+#
+# Provided for purposes of pushing code without breaking any services not yet registered
+# on smart-api with the required x-maturity field.  Once all services are registered on smart-api with
+# x-maturity, url-config-legacy.yaml should be deleted.
+
+# url-config-legacy.yaml is not a way for the ARS to avoid a successful request to smart-api.info in order
+# to be ready to serve requests.
+infores:aragorn: https://aragorn.renci.org/1.2
+# MW says aragorn_exp_app is experimental.  If so, we don't need a second official infores key.
+infores:aragorn-ranker-exp: https://aragorn.renci.org
+infores:arax: https://arax.ncats.io/api/arax/v1.2
+infores:biothings-explorer: https://api.bte.ncats.io/v1
+infores:explanatory-agent: https://explanatory-agent.azurewebsites.net/v1.2
+infores:explanatory-agent-creative-mode: https://explanatory-agent-creative.azurewebsites.net/ARA/v1.3
+infores:improving-agent: https://ia.ci.transltr.io/api/v1.3
+infores:example: http://transltr.io:7073
+infores:unsecret-agent: https://medikanren-trapi.ci.transltr.io
+infores:workflow-runner: https://translator-workflow-runner.renci.org
+infores:cqs: https://cqs-dev.apps.renci.org/v0.2/asyncquery
+infores:automat-cam-kp: https://automat.ci.transltr.io/cam-kp/1.4
+infores:connections-hypothesis: http://chp.thayer.dartmouth.edu
+infores:cohd: https://cohd.io/api
+infores:genetics-data-provider: https://translator.broadinstitute.org/genetics_provider/trapi/v1.1
+infores:icees-kg: https://automat.transltr.io/icees-kg/1.3
+infores:molepro: https://translator.broadinstitute.org/molepro/trapi/v1.2
+infores:openpredict: https://openpredict.semanticscience.org
+infores:automat-text-mining-provider: https://api.bte.ncats.io/v1/smartapi/978fe380a147a8641caf72320862697b

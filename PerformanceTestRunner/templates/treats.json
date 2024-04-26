@@ -1,0 +1,28 @@
+{
+  "message": {
+    "query_graph": {
+      "nodes": {
+        "ON": {
+          "ids": [],
+          "categories": [
+            "biolink:Disease"
+          ]
+        },
+        "SN": {
+          "categories": [
+            "biolink:ChemicalEntity"
+          ]
+        }
+      },
+      "edges": {
+        "e01": {
+          "object": "ON",
+          "subject": "SN",
+          "predicates": [
+            "biolink:treats"
+          ]
+        }
+      }
+    }
+  }
+}
