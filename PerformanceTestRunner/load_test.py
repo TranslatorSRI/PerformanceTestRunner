@@ -9,6 +9,7 @@ import datetime
 import httpx
 import numpy as np
 import ast
+import traceback
 from bs4 import BeautifulSoup
 from copy import deepcopy
 from typing import Any, Dict, List
@@ -23,13 +24,14 @@ logging.basicConfig(filename="test_ars.log", level=logging.DEBUG)
 BASE_PATH = os.path.dirname(os.path.realpath(__file__))
 parser = argparse.ArgumentParser(description='Performance Load Testing')
 parser.add_argument('--env', help='environment to run the analysis on', default='ci')
-parser.add_argument('--predicate',help='predicate',default='treats', type=list)
+parser.add_argument('--count', help='number of queries to run concurrently', type=int)
+parser.add_argument('--predicate',help='predicate',nargs="*",type=str)
 parser.add_argument('--runner_setting', help='creative mode indicator',nargs="*", type=str)
-parser.add_argument('--biolink_object_aspect_qualifier', help='activity_or_abundance', type=list, default='')
-parser.add_argument('--biolink_object_direction_qualifier', help='increased/decreased', type=list,default='')
-parser.add_argument('--input_category', help='Gene/Chemical', type=list)
-parser.add_argument('--input_curie', help='Input Curie', type=list)
-parser.add_argument('--component', help='ARS/ARAs/KPs', type=list)
+parser.add_argument('--biolink_object_aspect_qualifier', help='activity_or_abundance', nargs="*",type=str)
+parser.add_argument('--biolink_object_direction_qualifier', help='increased/decreased',nargs="*",type=str)
+parser.add_argument('--input_category', help='Gene/ChemicalEntity', nargs="*",type=str)
+parser.add_argument('--input_curie', help='Input Curie', nargs="*",type=str)
+parser.add_argument('--component', help='ARS/ARAs/KPs', nargs="*",type=str)
 
 env_spec = {
     'dev': 'ars-dev',
@@ -67,11 +69,17 @@ def get_safe(element, *keys):
     return None
 
 
-async def get_children_info(rj:Dict[str,any], pk:str,input_id:str, ARS_URL:str):
+async def get_children_info(rj:Dict[str,any], pk:str, input_id:str, input_curie:List, ARS_URL:str):
     stragglers=[]
     query={}
     query[input_id]={}
     query[input_id]['actors']={}
+
+    # if input_curie.count(input_id) > 1:
+    #     query[input_id]=[]
+    # else:
+    #     query[input_id]={}
+    #     query[input_id]['actors']={}
     children = rj['children']
     for child in children:
         actor = child['actor']['agent']
@@ -99,6 +107,7 @@ async def get_children_info(rj:Dict[str,any], pk:str,input_id:str, ARS_URL:str):
                  pass
             completion_time = None
         else:
+            print(f"child status is {child['status']} and child code is {child['code']}")
             completion_time = None
         query[input_id]['actors'][actor]={}
         query[input_id]['actors'][actor]['status'] = child['status']
@@ -216,7 +225,7 @@ async def generate(template: Dict[str,any],input_curie: str,aspect_qualifier: st
             edges['t_edge']['qualifier_constraints'][0]['qualifier_set'][0]['qualifier_value'] = aspect_qualifier
             edges['t_edge']['qualifier_constraints'][0]['qualifier_set'][1]['qualifier_value'] = direction_qualifier
 
-        elif category == 'biolink:Chemical':
+        elif category == 'biolink:ChemicalEntity':
             nodes['SN']['ids'].append(input_curie)
             del nodes['ON']['ids']
             edges['t_edge']['qualifier_constraints'][0]['qualifier_set'][0]['qualifier_value'] = aspect_qualifier
@@ -283,7 +292,7 @@ def send_post_request(url, data):
         print(f"Response from {url}: {response.status_code}")
         return response
     except requests.Timeout:
-        print("Request timed out!")
+        print(f"Request timed out for {url}!")
         return None
 
 def scrub_utility_list(utility_list, count):
@@ -406,13 +415,15 @@ def stress_individual_agents(report, URLS_map, message_list, component, utility_
                     report[agent]['completion_time'].append(None)
                     report[agent]['n_results'].append(None)
         except Exception as e:
-            print(e)
+            logging.error("Error in getting futures back")
+            logging.error("Unexpected error 4: {}".format(traceback.format_exception(type(e), e, e.__traceback__)))
+            logging.error(e.__traceback__)
 
         # Wait for all tasks to complete
         executor.shutdown(wait=True)
     return report, utility_list
 
-async def run_completion(ARS_URL: str,count: int, runner_setting: List[str],biolink_object_aspect_qualifier: List[str],biolink_object_direction_qualifier: List[str],input_category: List[str],input_curie: List[str],component: List[str], output_filename:str):
+async def run_completion(env: str, ARS_URL: str,count: int, predicate:List[str], runner_setting: List[str],biolink_object_aspect_qualifier: List[str],biolink_object_direction_qualifier: List[str],input_category: List[str],input_curie: List[str],component: List[str], output_filename:str):
 
     if runner_setting == []:
         creative = False
@@ -499,7 +510,7 @@ async def run_completion(ARS_URL: str,count: int, runner_setting: List[str],biol
         except json.decoder.JSONDecodeError:
             print("Non-JSON content received:")
             print(r.text)
-        query_report =await get_children_info(rj,pk,file,ARS_URL)
+        query_report =await get_children_info(rj,pk,file,input_curie, ARS_URL)
         if query_report is not None:
             merged_report = await get_merged_info(rj, ARS_URL)
             query_report[file]['merge_report'] = merged_report
@@ -507,8 +518,8 @@ async def run_completion(ARS_URL: str,count: int, runner_setting: List[str],biol
 
     complete_queries = await add_total_completion_time(ARS_report_card)
     report.update(complete_queries)
-    with open(output_filename, "w") as f:
-        json.dump(report, f, indent=4)
+    # with open(output_filename, "w") as f:
+    #     json.dump(report, f, indent=4)
 
     return report, ARS_URL
 
@@ -525,7 +536,7 @@ async def run_load_testing(env: str, count: int, predicate: List[str],runner_set
         for input_arg in [predicate,biolink_object_aspect_qualifier,biolink_object_direction_qualifier,input_category,input_curie]:
             input_arg.extend(input_arg[0:diff])
 
-    report_card = await run_completion(ARS_URL, count, runner_setting, biolink_object_aspect_qualifier,
+    report_card = await run_completion(env, ARS_URL, count, predicate, runner_setting, biolink_object_aspect_qualifier,
                                        biolink_object_direction_qualifier, input_category, input_curie, component,
                                        output_filename)
 
@@ -547,16 +558,6 @@ if __name__ == "__main__":
 
     current_time = datetime.datetime.now()
     formatted_start_time = current_time.strftime('%H:%M:%S')
-
-    # env = 'ci'
-    # count=5
-    # predicate = ['treats', 'affects','affect','treats', 'affects']
-    # runner_setting = ['inferred']
-    # biolink_object_aspect_qualifier = ['','activity_or_abundance','activity_or_abundance','','activity_or_abundance']
-    # biolink_object_direction_qualifier = ['','increased','decreased','','increased']
-    # input_category = ['biolink:Disease','biolink:Gene','biolink:Chemical','biolink:Disease','biolink:Gene']
-    # input_curie = ['MONDO:0009265','NCBIGene:23394','PUBCHEM.COMPOUND:5881','MONDO:0015564','NCBIGene:4318']
-    # component = ['ARS','ARAs', 'KPs', 'Utility']
 
     print(f"started performing ARS_Load_Testing at {formatted_start_time}")
     print(asyncio.run(run_load_testing(env,count, predicate,runner_setting,biolink_object_aspect_qualifier,biolink_object_direction_qualifier,input_category,input_curie,component)))

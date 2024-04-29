@@ -1,4 +1,8 @@
 .DS_Store
 .idea/
-
-
+PerformanceTestRunner/.DS_Store
+PerformanceTestRunner/__pycache__
+PerformanceTestRunner.egg-info/
+PerformanceTestRunner.iml
+test_ars.log
+PerformanceTestRunner/test_ars.log
