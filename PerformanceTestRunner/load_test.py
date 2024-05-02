@@ -13,7 +13,7 @@ import traceback
 from bs4 import BeautifulSoup
 from copy import deepcopy
 from typing import Any, Dict, List
-from smart_api_discover import SmartApiDiscover
+from PerformanceTestRunner.smart_api_discover import SmartApiDiscover
 from concurrent.futures import ThreadPoolExecutor
 
 # We really shouldn't be doing this, but just for now...
@@ -69,17 +69,12 @@ def get_safe(element, *keys):
     return None
 
 
-async def get_children_info(rj:Dict[str,any], pk:str, input_id:str, input_curie:List, ARS_URL:str):
+async def get_children_info(rj:Dict[str,any], pk:str, input_id:str, ARS_URL:str):
     stragglers=[]
     query={}
     query[input_id]={}
     query[input_id]['actors']={}
 
-    # if input_curie.count(input_id) > 1:
-    #     query[input_id]=[]
-    # else:
-    #     query[input_id]={}
-    #     query[input_id]['actors']={}
     children = rj['children']
     for child in children:
         actor = child['actor']['agent']
@@ -107,7 +102,7 @@ async def get_children_info(rj:Dict[str,any], pk:str, input_id:str, input_curie:
                  pass
             completion_time = None
         else:
-            print(f"child status is {child['status']} and child code is {child['code']}")
+            #print(f"child status is {child['status']} and child code is {child['code']}")
             completion_time = None
         query[input_id]['actors'][actor]={}
         query[input_id]['actors'][actor]['status'] = child['status']
@@ -133,8 +128,9 @@ def remove_knowledge_type(message_list):
 
     return scrubbed_mesg_list
 async def add_total_completion_time(queries:Dict[str,any]):
-    for query in queries.values():
-        for file, parameter in query.items():
+    # for query_list in queries.values():
+    for item in queries:
+        for file, parameter in item.items():
             for param_key, param_val in parameter.items():
                 if param_key not in ['stragglers', 'parent_pk', 'merge_report']:
                     completion_list = []
@@ -146,7 +142,7 @@ async def add_total_completion_time(queries:Dict[str,any]):
                     max_completion=max(completion_arr)
                 else:
                     pass
-            query[file]['completion_time']=max_completion
+            item[file]['completion_time']=max_completion
 
     return queries
 async def get_merged_info(rj:Dict[str,any], ARS_URL:str):
@@ -286,7 +282,7 @@ async def smartapi_registry(map, component):
 def send_post_request(url, data):
     try:
         headers={'Content-Type': 'application/json', 'accept': 'application/json'}
-        print(f'sending mesg to url: {url} at {datetime.datetime.now()}')
+        #print(f'sending mesg to url: {url} at {datetime.datetime.now()}')
         response = requests.post(url=url, headers=headers, json=data, timeout=360)
         # You can handle the response here
         print(f"Response from {url}: {response.status_code}")
@@ -320,14 +316,14 @@ def run_node_norm(url, indv_agent,indv_response):
             "conflate":True,
             "drug_chemical_conflate":True
         }
-        print(f'sending nodes from {indv_agent} to url: {url} at {datetime.datetime.now()}')
+        #print(f'sending nodes from {indv_agent} to url: {url} at {datetime.datetime.now()}')
         response = requests.post(url=url, data=json.dumps(j))
 
     return response
 
 def run_answer_appraiser(url,indv_agent, indv_response):
     headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
-    print(f'sending messages from {indv_agent} to url: {url} at {datetime.datetime.now()}')
+    #print(f'sending messages from {indv_agent} to url: {url} at {datetime.datetime.now()}')
     response = requests.post(url=url, headers=headers, json=indv_response, timeout=300)
     return response
 
@@ -392,28 +388,35 @@ def stress_individual_agents(report, URLS_map, message_list, component, utility_
                 if response is not None:
                     content_compress = response.content
                     stringv= content_compress.decode('utf-8')
-                    if stringv.startswith('<html>'):
+                    if stringv.startswith('<html>') or '<html' in stringv:
                         soup = BeautifulSoup(stringv, 'html.parser')
                         html_mesg = soup.body.text
-                        n_results = html_mesg
+                        if html_mesg.startswith('\n'):
+                            mesg = html_mesg.replace("\n", "")
+                        else:
+                            mesg=html_mesg
+                        n_results = mesg
                     else:
                         json_data= json.loads(stringv)
-                        if len(json_data['message']) == 0 or json_data['message'] is None or json_data['message']['results'] is None:
-                            n_results = None
-                        else:
-                            n_results=len(json_data['message']['results'])
+                        if 'error' in json_data.keys():
+                            n_results = json_data['error']['description']
+                        elif 'message' in json_data.keys():
+                            if len(json_data['message']) == 0 or json_data['message'] is None or json_data['message']['results'] is None:
+                                n_results = None
+                            else:
+                                n_results=len(json_data['message']['results'])
 
-                        if 'Utility' in component and len(json_data['message']) != 0:
-                            #only add the ARA reponses
-                            utility_list.append([agent, json_data])
+                            if 'Utility' in component and len(json_data['message']) != 0:
+                                #only add the ARA reponses
+                                utility_list.append([agent, json_data])
 
                     report[agent]['status'].append(response.status_code)
                     report[agent]['completion_time'].append(response.elapsed.total_seconds())
                     report[agent]['n_results'].append(n_results)
                 else:
-                    report[agent]['status'].append(None)
-                    report[agent]['completion_time'].append(None)
-                    report[agent]['n_results'].append(None)
+                    report[agent]['status'].append('None')
+                    report[agent]['completion_time'].append('None')
+                    report[agent]['n_results'].append('None')
         except Exception as e:
             logging.error("Error in getting futures back")
             logging.error("Unexpected error 4: {}".format(traceback.format_exception(type(e), e, e.__traceback__)))
@@ -431,97 +434,118 @@ async def run_completion(env: str, ARS_URL: str,count: int, predicate:List[str],
         creative = True
 
     message_list = await generate_message(predicate, creative,biolink_object_aspect_qualifier,biolink_object_direction_qualifier,input_category,input_curie)
+    report_card={}
 
-    if 'ARAs' in component or 'KPS' in component or 'Utility' in component:
+    if 'ARAs' in component or 'KPs' in component or 'Utility' in component:
         map = SmartApiDiscover(maturity=x_maturity[env]).ensure()
-        report={}
         utility_list=[]
         if 'ARAs' in component:
             print(f'sending mesg to ARA_url at {datetime.datetime.now()}')
             ARA_URLS_map = await smartapi_registry(map,'ARA')
-            report, utility_list = stress_individual_agents(report, ARA_URLS_map, message_list, component, utility_list)
+            report_card, utility_list = stress_individual_agents(report_card, ARA_URLS_map, message_list, component, utility_list)
         if 'KPs' in component:
             print(f'sending mesg to KP_urls at {datetime.datetime.now()}')
             KP_URLS_map = await smartapi_registry(map,'KP')
             message_list_kp = remove_knowledge_type(message_list)
-            report, utility_list = stress_individual_agents(report, KP_URLS_map, message_list_kp, component,utility_list)
+            report_card, utility_list = stress_individual_agents(report_card, KP_URLS_map, message_list_kp, component,utility_list)
         if 'Utility' in component:
             print(f'sending mesg to utility_urls at {datetime.datetime.now()}')
             Utility_URLS_map = await smartapi_registry(map,'Utility')
             utility_scrub_list = scrub_utility_list(utility_list, count)
-            report = stress_utilities(report, Utility_URLS_map, utility_scrub_list)
+            report_card = stress_utilities(report_card, Utility_URLS_map, utility_scrub_list)
 
-    ARS_report_card={}
-    ARS_report_card['data']={}
-    ARS_PK_list=[]
-    ARS_PK_done=[]
-    for idx, mesg in enumerate(message_list):
-        if 'error' in mesg.keys():
-            ARS_report_card['data'][input_curie[idx]] = mesg
-        elif 'ARS' in component:
-            pk = await call_ars(mesg, ARS_URL)
-            ARS_PK_list.append((pk,input_curie[idx]))
+    if 'ARS' in component:
+        report_card['infores:ars']=[]
+        ARS_PK_list=[]
+        ARS_PK_done=[]
+        for idx, mesg in enumerate(message_list):
+            if 'error' in mesg.keys():
+                report_card['infores:ars'][input_curie[idx]] = mesg
+            else:
+                pk = await call_ars(mesg, ARS_URL)
+                ARS_PK_list.append((pk,input_curie[idx]))
 
-    print(f'the following pks are going to be is: {ARS_PK_list}')
-    start_time=time.time()
-    print('starting......')
-    while (time.time()-start_time)/60<30:
-        for item in ARS_PK_list:
-            parent_pk=item[0]
-            url = ARS_URL + "messages/" + parent_pk + "?trace=y"
+        print(f'the following pks are going to be is: {ARS_PK_list}')
+        start_time=time.time()
+        print('starting......')
+        while (time.time()-start_time)/60<30:
+            for item in ARS_PK_list:
+                parent_pk=item[0]
+                url = ARS_URL + "messages/" + parent_pk + "?trace=y"
+                async with httpx.AsyncClient(verify=False) as client:
+                    r = await client.get(url, timeout=60)
+                try:
+                    rj = r.json()
+                except json.decoder.JSONDecodeError:
+                    print("Non-JSON content received:")
+                    print(r.text)
+                if rj["status"]=="Done":
+                    if item not in ARS_PK_done:
+                        print(f'{item[1]} : {item[0]} added to the Done list')
+                        ARS_PK_done.append(item)
+                    else:
+                        pass
+                elif rj["status"]=='Running' or rj["status"]=='Error':
+                    pass
+            if len(ARS_PK_done) == len(ARS_PK_list):
+                time.sleep(90)
+                break
+        else:
+            for item in ARS_PK_list:
+                parent_pk=item[0]
+                url = ARS_URL + "messages/" + parent_pk + "?trace=y"
+                async with httpx.AsyncClient(verify=False) as client:
+                    r = await client.get(url,timeout=60)
+                rj = r.json()
+                if rj["status"]=="Running":
+                    print(f'the following pk is still running after 30 min  in {parent_pk}')
+                    ARS_PK_done.append(item)
+                else:
+                    pass
+        for item in ARS_PK_done:
+            pk=item[0]
+            file = item[1]
+            url = ARS_URL + "messages/" + pk + "?trace=y"
             async with httpx.AsyncClient(verify=False) as client:
-                r = await client.get(url, timeout=60)
+                r = await client.get(url,timeout=60)
             try:
                 rj = r.json()
             except json.decoder.JSONDecodeError:
                 print("Non-JSON content received:")
                 print(r.text)
-            if rj["status"]=="Done":
-                if item not in ARS_PK_done:
-                    print(f'{item[1]} : {item[0]} added to the Done list')
-                    ARS_PK_done.append(item)
+            query_report =await get_children_info(rj,pk,file,ARS_URL)
+            if query_report is not None:
+                merged_report = await get_merged_info(rj, ARS_URL)
+                query_report[file]['merge_report'] = merged_report
+            key=file
+            if report_card['infores:ars'] != []:
+                rep = {k: v for d in report_card['infores:ars'] for k, v in d.items()}
+                repeat_count=sum([1 for key in rep.keys() if key.startswith(f"{file}")])
+                if repeat_count >= 1:
+                    query_report[f'{key}_run_{repeat_count+1}']=query_report[key]
+                    del query_report[key]
+                    report_card['infores:ars'].append(query_report)
                 else:
-                    pass
-            elif rj["status"]=='Running' or rj["status"]=='Error':
-                pass
-        if len(ARS_PK_done) == len(ARS_PK_list):
-            time.sleep(90)
-            break
-    else:
-        for item in ARS_PK_list:
-            parent_pk=item[0]
-            url = ARS_URL + "messages/" + parent_pk + "?trace=y"
-            async with httpx.AsyncClient(verify=False) as client:
-                r = await client.get(url,timeout=60)
-            rj = r.json()
-            if rj["status"]=="Running":
-                print(f'the following pk is still running after 30 min  in {parent_pk}')
-                ARS_PK_done.append(item)
+                    if input_curie.count(key) > 1:
+                        query_report[f'{key}_run_1']=query_report[key]
+                        del query_report[key]
+                        report_card['infores:ars'].append(query_report)
+                    else:
+                        report_card['infores:ars'].append(query_report)
             else:
-                pass
-    for item in ARS_PK_done:
-        pk=item[0]
-        file = item[1]
-        url = ARS_URL + "messages/" + pk + "?trace=y"
-        async with httpx.AsyncClient(verify=False) as client:
-            r = await client.get(url,timeout=60)
-        try:
-            rj = r.json()
-        except json.decoder.JSONDecodeError:
-            print("Non-JSON content received:")
-            print(r.text)
-        query_report =await get_children_info(rj,pk,file,input_curie, ARS_URL)
-        if query_report is not None:
-            merged_report = await get_merged_info(rj, ARS_URL)
-            query_report[file]['merge_report'] = merged_report
-        ARS_report_card['data'].update(query_report)
+                if input_curie.count(key) > 1:
+                    query_report[f'{key}_run_1']=query_report[key]
+                    del query_report[key]
+                    report_card['infores:ars'].append(query_report)
+                else:
+                    report_card['infores:ars'].append(query_report)
 
-    complete_queries = await add_total_completion_time(ARS_report_card)
-    report.update(complete_queries)
+        complete_queries = await add_total_completion_time(report_card['infores:ars'])
+
     # with open(output_filename, "w") as f:
-    #     json.dump(report, f, indent=4)
+    #     json.dump(report_card, f, indent=4)
 
-    return report, ARS_URL
+    return report_card
 
 
 async def run_load_testing(env: str, count: int, predicate: List[str],runner_setting: List[str],biolink_object_aspect_qualifier: List[str],biolink_object_direction_qualifier: List[str],input_category: List[str],input_curie: List[str],component:List[str]):
@@ -532,9 +556,10 @@ async def run_load_testing(env: str, count: int, predicate: List[str],runner_set
     output_filename = f"ARS_smoke_test_{timestamp}.json"
 
     if count > len(predicate):
-        diff = count - len(predicate)
         for input_arg in [predicate,biolink_object_aspect_qualifier,biolink_object_direction_qualifier,input_category,input_curie]:
-            input_arg.extend(input_arg[0:diff])
+            while count > len(input_arg):
+                diff = count - len(input_arg)
+                input_arg.extend(input_arg[0:diff])
 
     report_card = await run_completion(env, ARS_URL, count, predicate, runner_setting, biolink_object_aspect_qualifier,
                                        biolink_object_direction_qualifier, input_category, input_curie, component,
