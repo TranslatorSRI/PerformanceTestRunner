@@ -287,6 +287,8 @@ def send_post_request(url, data):
         # You can handle the response here
         print(f"Response from {url}: {response.status_code}")
         return response
+    except requests.exceptions.ConnectionError as e:
+        return e
     except requests.Timeout:
         print(f"Request timed out for {url}!")
         return None
@@ -386,29 +388,32 @@ def stress_individual_agents(report, URLS_map, message_list, component, utility_
                 agent = future[0]
                 response = future[1].result()
                 if response is not None:
-                    content_compress = response.content
-                    stringv= content_compress.decode('utf-8')
-                    if stringv.startswith('<html>') or '<html' in stringv:
-                        soup = BeautifulSoup(stringv, 'html.parser')
-                        html_mesg = soup.body.text
-                        if html_mesg.startswith('\n'):
-                            mesg = html_mesg.replace("\n", "")
-                        else:
-                            mesg=html_mesg
-                        n_results = mesg
+                    if isinstance(response, Exception):
+                        n_results=response.text
                     else:
-                        json_data= json.loads(stringv)
-                        if 'error' in json_data.keys():
-                            n_results = json_data['error']['description']
-                        elif 'message' in json_data.keys():
-                            if len(json_data['message']) == 0 or json_data['message'] is None or json_data['message']['results'] is None:
-                                n_results = None
+                        content_compress = response.content
+                        stringv= content_compress.decode('utf-8')
+                        if stringv.startswith('<html>') or '<html' in stringv:
+                            soup = BeautifulSoup(stringv, 'html.parser')
+                            html_mesg = soup.body.text
+                            if html_mesg.startswith('\n'):
+                                mesg = html_mesg.replace("\n", "")
                             else:
-                                n_results=len(json_data['message']['results'])
+                                mesg=html_mesg
+                            n_results = mesg
+                        else:
+                            json_data= json.loads(stringv)
+                            if 'error' in json_data.keys():
+                                n_results = json_data['error']['description']
+                            elif 'message' in json_data.keys():
+                                if len(json_data['message']) == 0 or json_data['message'] is None or json_data['message']['results'] is None:
+                                    n_results = None
+                                else:
+                                    n_results=len(json_data['message']['results'])
 
-                            if 'Utility' in component and len(json_data['message']) != 0:
-                                #only add the ARA reponses
-                                utility_list.append([agent, json_data])
+                                if 'Utility' in component and len(json_data['message']) != 0:
+                                    #only add the ARA reponses
+                                    utility_list.append([agent, json_data])
 
                     report[agent]['status'].append(response.status_code)
                     report[agent]['completion_time'].append(response.elapsed.total_seconds())
