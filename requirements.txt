@@ -6,3 +6,4 @@ attrs >= 20.3.0
 click
 twine
 bs4
+aiohttp

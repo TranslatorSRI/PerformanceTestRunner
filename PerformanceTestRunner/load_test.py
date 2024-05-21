@@ -5,6 +5,8 @@ import logging
 import time
 import argparse
 import asyncio
+import aiohttp
+from aiohttp import ClientError
 import datetime
 import httpx
 import numpy as np
@@ -102,7 +104,6 @@ async def get_children_info(rj:Dict[str,any], pk:str, input_id:str, ARS_URL:str)
                  pass
             completion_time = None
         else:
-            #print(f"child status is {child['status']} and child code is {child['code']}")
             completion_time = None
         query[input_id]['actors'][actor]={}
         query[input_id]['actors'][actor]['status'] = child['status']
@@ -246,7 +247,7 @@ async def generate_message(predicate: List[str], creative: any,biolink_object_as
         aspect_qualifier = biolink_object_aspect_qualifier[idx]
         direction_qualifier = biolink_object_direction_qualifier[idx]
         category = input_category[idx]
-        pred = predicate[idx]
+        pred = predicate[idx].split(':')[1]
         if pred in ['treats','affects']:
             if creative:
                 template_name = pred+'_creative'
@@ -279,19 +280,6 @@ async def smartapi_registry(map, component):
 
     return agent_map
 
-def send_post_request(url, data):
-    try:
-        headers={'Content-Type': 'application/json', 'accept': 'application/json'}
-        #print(f'sending mesg to url: {url} at {datetime.datetime.now()}')
-        response = requests.post(url=url, headers=headers, json=data, timeout=360)
-        # You can handle the response here
-        print(f"Response from {url}: {response.status_code}")
-        return response
-    except requests.exceptions.ConnectionError as e:
-        return e
-    except requests.Timeout:
-        print(f"Request timed out for {url}!")
-        return None
 
 def scrub_utility_list(utility_list, count):
     scrubed_list=[]
@@ -318,14 +306,12 @@ def run_node_norm(url, indv_agent,indv_response):
             "conflate":True,
             "drug_chemical_conflate":True
         }
-        #print(f'sending nodes from {indv_agent} to url: {url} at {datetime.datetime.now()}')
         response = requests.post(url=url, data=json.dumps(j))
 
     return response
 
 def run_answer_appraiser(url,indv_agent, indv_response):
     headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
-    #print(f'sending messages from {indv_agent} to url: {url} at {datetime.datetime.now()}')
     response = requests.post(url=url, headers=headers, json=indv_response, timeout=300)
     return response
 
@@ -372,67 +358,67 @@ def stress_utilities(report, URLS_map, response_list):
         executor2.shutdown(wait=True)
     return report
 
-def stress_individual_agents(report, URLS_map, message_list, component, utility_list):
-    futures=[]
-    with ThreadPoolExecutor(max_workers=30) as executor:
-        for agent, url in URLS_map.items():
-            report[agent]={}
-            report[agent]['status']=[]
-            report[agent]['completion_time']=[]
-            report[agent]['n_results']=[]
-            for mesg in message_list:
-                future = executor.submit(send_post_request, url, mesg)
-                futures.append([agent,future])
-        try:
-            for future in futures:
-                agent = future[0]
-                response = future[1].result()
-                if response is not None:
-                    if isinstance(response, Exception):
-                        n_results=response.text
-                    else:
-                        content_compress = response.content
-                        stringv= content_compress.decode('utf-8')
-                        if stringv.startswith('<html>') or '<html' in stringv:
-                            soup = BeautifulSoup(stringv, 'html.parser')
-                            html_mesg = soup.body.text
-                            if html_mesg.startswith('\n'):
-                                mesg = html_mesg.replace("\n", "")
-                            else:
-                                mesg=html_mesg
-                            n_results = mesg
-                        else:
-                            json_data= json.loads(stringv)
-                            if 'error' in json_data.keys():
-                                n_results = json_data['error']['description']
-                            elif 'message' in json_data.keys():
-                                if len(json_data['message']) == 0 or json_data['message'] is None or json_data['message']['results'] is None:
-                                    n_results = None
-                                else:
-                                    n_results=len(json_data['message']['results'])
+async def send_post_request(session, url, data, agent):
+    try:
+        start_time = time.time()
+        headers={'Content-Type': 'application/json', 'accept': 'application/json'}
+        #print(f'sending mesg to url: {url} at {datetime.datetime.now()}')
+        async with session.post(url, json=data,headers=headers,timeout=300) as response:
+            rj = await response.json()
+            elapsed_time=time.time()-start_time
+            return rj,response.status,elapsed_time,url,agent
 
-                                if 'Utility' in component and len(json_data['message']) != 0:
-                                    #only add the ARA reponses
-                                    utility_list.append([agent, json_data])
+    except asyncio.TimeoutError:
+        elapsed_time = time.time() - start_time
+        return None,"TimeoutError",elapsed_time,url, agent
+    except ClientError as e:
+        elapsed_time = time.time() - start_time
+        return None, f"ClientError: {str(e)}",elapsed_time,url, agent
 
-                    report[agent]['status'].append(response.status_code)
-                    report[agent]['completion_time'].append(response.elapsed.total_seconds())
-                    report[agent]['n_results'].append(n_results)
+
+async def post_all(url_mesg_agent_trio):
+
+    async with aiohttp.ClientSession() as session:
+        tasks = [send_post_request(session, url, data, agent) for url, data, agent in url_mesg_agent_trio]
+        return await asyncio.gather(*tasks)
+
+async def stress_individual_agents(report, URLS_map, message_list, component, utility_list):
+
+    url_mesg_agent_trio=[]
+    for infores_agent, url in URLS_map.items():
+        agent = infores_agent.split(':')[1]
+        report[agent]={}
+        report[agent]['status']=[]
+        report[agent]['completion_time']=[]
+        report[agent]['n_results']=[]
+        for mesg in message_list:
+            url_mesg_agent_trio.append((url, mesg, agent))
+    
+    results = await post_all(url_mesg_agent_trio)
+
+    for response,status,elapsed_time,url, agent in results:
+        if response is not None:
+            if 'message' in response.keys():
+                if len(response['message']) == 0 or response['message'] is None or response['message']['results'] is None:
+                    n_results = None
                 else:
-                    report[agent]['status'].append('None')
-                    report[agent]['completion_time'].append('None')
-                    report[agent]['n_results'].append('None')
-        except Exception as e:
-            logging.error("Error in getting futures back")
-            logging.error("Unexpected error 4: {}".format(traceback.format_exception(type(e), e, e.__traceback__)))
-            logging.error(e.__traceback__)
+                    n_results=len(response['message']['results'])
 
-        # Wait for all tasks to complete
-        executor.shutdown(wait=True)
+                if 'Utility' in component and len(response['message']) != 0:
+                    #only add the ARA responses
+                    utility_list.append([agent, response])
+        else:
+            n_results=None
+
+        report[agent]['status'].append(status)
+        report[agent]['completion_time'].append(elapsed_time)
+        report[agent]['n_results'].append(n_results)
+
+
     return report, utility_list
-
+    
 async def run_completion(env: str, ARS_URL: str,count: int, predicate:List[str], runner_setting: List[str],biolink_object_aspect_qualifier: List[str],biolink_object_direction_qualifier: List[str],input_category: List[str],input_curie: List[str],component: List[str], output_filename:str):
-
+    
     if runner_setting == []:
         creative = False
     elif "inferred" in runner_setting:
@@ -447,12 +433,12 @@ async def run_completion(env: str, ARS_URL: str,count: int, predicate:List[str],
         if 'ARAs' in component:
             print(f'sending mesg to ARA_url at {datetime.datetime.now()}')
             ARA_URLS_map = await smartapi_registry(map,'ARA')
-            report_card, utility_list = stress_individual_agents(report_card, ARA_URLS_map, message_list, component, utility_list)
+            report_card, utility_list = await stress_individual_agents(report_card, ARA_URLS_map, message_list, component, utility_list)
         if 'KPs' in component:
             print(f'sending mesg to KP_urls at {datetime.datetime.now()}')
             KP_URLS_map = await smartapi_registry(map,'KP')
             message_list_kp = remove_knowledge_type(message_list)
-            report_card, utility_list = stress_individual_agents(report_card, KP_URLS_map, message_list_kp, component,utility_list)
+            report_card, utility_list = await stress_individual_agents(report_card, KP_URLS_map, message_list_kp, component,utility_list)
         if 'Utility' in component:
             print(f'sending mesg to utility_urls at {datetime.datetime.now()}')
             Utility_URLS_map = await smartapi_registry(map,'Utility')
@@ -560,11 +546,28 @@ async def run_load_testing(env: str, count: int, predicate: List[str],runner_set
     timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     output_filename = f"ARS_smoke_test_{timestamp}.json"
 
+    #checking the input argument types
+    error=False
+    for input_arg in [predicate,biolink_object_aspect_qualifier,biolink_object_direction_qualifier,input_category,input_curie, component]:
+        if not isinstance(input_arg, list):
+            print('ERROR: Wrong Input Type, No Message was created')
+            error=True
+    if error:
+        exit(0)
+
     if count > len(predicate):
         for input_arg in [predicate,biolink_object_aspect_qualifier,biolink_object_direction_qualifier,input_category,input_curie]:
             while count > len(input_arg):
                 diff = count - len(input_arg)
                 input_arg.extend(input_arg[0:diff])
+
+    elif count < len(predicate):
+        predicate = predicate[0:count]
+        biolink_object_aspect_qualifier = biolink_object_aspect_qualifier[0:count]
+        biolink_object_direction_qualifier = biolink_object_direction_qualifier[0:count]
+        input_category = input_category[0:count]
+        input_curie = input_curie[0:count]
+
 
     report_card = await run_completion(env, ARS_URL, count, predicate, runner_setting, biolink_object_aspect_qualifier,
                                        biolink_object_direction_qualifier, input_category, input_curie, component,

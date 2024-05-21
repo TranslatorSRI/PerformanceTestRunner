@@ -25,7 +25,7 @@ After installation, simply type PerformanceTestRunner --help to see required inp
     - component: service to stress (ARS|ARAs|KPs|Utility)
 
 - example:
-  - PerformanceTestRunner --env 'ci' --count 5 --predicate '["treats", "affects","affect","treats", "affects"]' --runner_setting '["inferred"]' --biolink_object_aspect_qualifier '["","activity_or_abundance","activity_or_abundance","","activity_or_abundance"]' --biolink_object_direction_qualifier '["","increased","decreased","","increased"]' --input_category '["biolink:Disease","biolink:Gene","biolink:ChemicalEntity","biolink:Disease","biolink:Gene"]' --input_curie '["MONDO:0009265","NCBIGene:23394","PUBCHEM.COMPOUND:5881","MONDO:0015564","NCBIGene:4318"]' --component '["ARS","ARAs", "KPs", "Utility"]'
+  - PerformanceTestRunner --env 'ci' --count 5 --predicate '["biolink:treats", "biolink:affects","biolink:affects","biolink:treats", "biolink:affects"]' --runner_setting '["inferred"]' --biolink_object_aspect_qualifier '["","activity_or_abundance","activity_or_abundance","","activity_or_abundance"]' --biolink_object_direction_qualifier '["","increased","decreased","","increased"]' --input_category '["biolink:Disease","biolink:Gene","biolink:ChemicalEntity","biolink:Disease","biolink:Gene"]' --input_curie '["MONDO:0009265","NCBIGene:23394","PUBCHEM.COMPOUND:5881","MONDO:0015564","NCBIGene:4318"]' --component '["ARS","ARAs", "KPs", "Utility"]'
 
 
 
@@ -33,11 +33,11 @@ After installation, simply type PerformanceTestRunner --help to see required inp
 ``` python 
 import asyncio
 from PerformanceTestRunner.load_test import run_load_testing
-asyncio.run(run_load_testing('ci',3, ['treats','affects','affects'],['inferred'],['','activity_or_abundance','activity_or_abundance'],['','increased','decreased'],['biolink:Disease','biolink:Gene','biolink:ChemicalEntity'],['MONDO:0009265','NCBIGene:23394','PUBCHEM.COMPOUND:5881'],['ARS','ARAs', 'KPs', 'Utility']))
+asyncio.run(run_load_testing('ci',3, ['biolink:treats','biolink:affects','biolink:affects'],['inferred'],['','activity_or_abundance','activity_or_abundance'],['','increased','decreased'],['biolink:Disease','biolink:Gene','biolink:ChemicalEntity'],['MONDO:0009265','NCBIGene:23394','PUBCHEM.COMPOUND:5881'],['ARS','ARAs', 'KPs', 'Utility']))
 ```
 OR
 ``` python 
-python load_test.py --env 'ci' --count 3 --predicate 'treats' 'affects' 'affects' --runner_setting 'inferred'  --biolink_object_aspect_qualifier '' 'activity_or_abundance' 'activity_or_abundance' --biolink_object_direction_qualifier '' 'increased' 'decreased'  --input_category 'biolink:Disease' 'biolink:Gene' 'biolink:ChemicalEntity' --input_curie 'MONDO:0009265' 'NCBIGene:23394' 'PUBCHEM.COMPOUND:5881' --component 'ARS' 'ARAs' 'KPs' 'Utility'
+python load_test.py --env 'ci' --count 3 --predicate 'biolink:treats' 'biolink:affects' 'biolink:affects' --runner_setting 'inferred'  --biolink_object_aspect_qualifier '' 'activity_or_abundance' 'activity_or_abundance' --biolink_object_direction_qualifier '' 'increased' 'decreased'  --input_category 'biolink:Disease' 'biolink:Gene' 'biolink:ChemicalEntity' --input_curie 'MONDO:0009265' 'NCBIGene:23394' 'PUBCHEM.COMPOUND:5881' --component 'ARS' 'ARAs' 'KPs' 'Utility'
 ```
 
 
