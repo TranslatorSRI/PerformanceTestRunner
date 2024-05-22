@@ -5,8 +5,6 @@ import logging
 import time
 import argparse
 import asyncio
-import aiohttp
-from aiohttp import ClientError
 import datetime
 import httpx
 import numpy as np
@@ -296,7 +294,7 @@ def scrub_utility_list(utility_list, count):
             print(e)
     scrubbed=scrubed_list[0:count]
     return scrubbed
-def run_node_norm(url, indv_agent,indv_response):
+async def run_node_norm(client, url, indv_agent,indv_response):
     kg = get_safe(indv_response, "message", "knowledge_graph")
     nodes = kg['nodes']
     ids=list(nodes.keys())
@@ -306,80 +304,80 @@ def run_node_norm(url, indv_agent,indv_response):
             "conflate":True,
             "drug_chemical_conflate":True
         }
-        response = requests.post(url=url, data=json.dumps(j))
+        response = await client.post(url=url, data=json.dumps(j))
 
     return response
 
-def run_answer_appraiser(url,indv_agent, indv_response):
+async def run_answer_appraiser(client, url,indv_agent, indv_response):
+    response = client.post(url=url, json=indv_response)
+    return response
+
+async def run_utilities(agent, url,indv_agent ,indv_response):
     headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
-    response = requests.post(url=url, headers=headers, json=indv_response, timeout=300)
-    return response
-
-def run_utilities(agent, url,indv_agent ,indv_response):
-
-    try:
-        if 'nodenorm' in url:
-
-            response = run_node_norm(url,indv_agent, indv_response)
-            print(f"Response nodes from {indv_agent} to {url} is : {response.status_code}")
-            return response
-        elif 'answerappraiser' in url:
-
-            response = run_answer_appraiser(url,indv_agent, indv_response)
-            print(f"Response messages from agent {indv_agent} for {url} is : {response.status_code}")
-            return response
-
-    except Exception as e:
-        print(e)
-        return None
-
-def stress_utilities(report, URLS_map, response_list):
-    futures=[]
-    with ThreadPoolExecutor(max_workers=20) as executor2:
-        for agent, url in URLS_map.items():
-            report[agent]={}
-            report[agent]['status']=[]
-            report[agent]['completion_time']=[]
-            for response in response_list:
-                future = executor2.submit(run_utilities, agent, url,response[0],response[1])
-                futures.append([agent,future])
+    async with httpx.AsyncClient(timeout=300, headers=headers) as client:
         try:
-            for future in futures:
-                agent = future[0]
-                response = future[1].result()
-                if response is not None:
-                    report[agent]['status'].append(response.status_code)
-                    report[agent]['completion_time'].append(response.elapsed.total_seconds())
+            if 'nodenorm' in url:
+
+                response = await run_node_norm(client, url,indv_agent, indv_response)
+                print(f"Response nodes from {indv_agent} to {url} is : {response.status_code}")
+                return agent, response
+            elif 'answerappraiser' in url:
+
+                response = await run_answer_appraiser(client, url,indv_agent, indv_response)
+                print(f"Response messages from agent {indv_agent} for {url} is : {response.status_code}")
+                return agent, response
 
         except Exception as e:
             print(e)
+            return agent, None
 
-        # Wait for all tasks to complete
-        executor2.shutdown(wait=True)
+
+async def stress_utilities(report, URLS_map, response_list):
+    tasks = []
+    for agent, url in URLS_map.items():
+        report[agent]={}
+        report[agent]['status']=[]
+        report[agent]['completion_time']=[]
+        for response in response_list:
+            tasks.append(run_utilities(agent, url, response[0], response[1]))
+    
+    # Wait for all tasks to complete
+    results = await asyncio.gather(*tasks)
+    
+    try:
+        for agent, response in results:
+            if response is not None:
+                report[agent]['status'].append(response.status_code)
+                report[agent]['completion_time'].append(response.elapsed.total_seconds())
+
+    except Exception as e:
+        print(e)
+
     return report
 
-async def send_post_request(session, url, data, agent):
+
+async def send_post_request(client: httpx.AsyncClient, url, data, agent):
     try:
         start_time = time.time()
-        headers={'Content-Type': 'application/json', 'accept': 'application/json'}
         #print(f'sending mesg to url: {url} at {datetime.datetime.now()}')
-        async with session.post(url, json=data,headers=headers,timeout=300) as response:
-            rj = await response.json()
-            elapsed_time=time.time()-start_time
-            return rj,response.status,elapsed_time,url,agent
+        response = await client.post(url, json=data)
+        response.raise_for_status()
+        rj = response.json()
+        elapsed_time=time.time()-start_time
+        return rj,response.status_code,elapsed_time,url,agent
 
     except asyncio.TimeoutError:
         elapsed_time = time.time() - start_time
         return None,"TimeoutError",elapsed_time,url, agent
-    except ClientError as e:
+    except httpx.HTTPError as e:
         elapsed_time = time.time() - start_time
         return None, f"ClientError: {str(e)}",elapsed_time,url, agent
 
 
 async def post_all(url_mesg_agent_trio):
-
-    async with aiohttp.ClientSession() as session:
-        tasks = [send_post_request(session, url, data, agent) for url, data, agent in url_mesg_agent_trio]
+    headers = {'Content-Type': 'application/json', 'accept': 'application/json'}
+    async with httpx.AsyncClient(timeout=300, headers=headers) as client:
+        tasks = [send_post_request(client, url, data, agent) for url, data, agent in url_mesg_agent_trio]
         return await asyncio.gather(*tasks)
 
 async def stress_individual_agents(report, URLS_map, message_list, component, utility_list):
@@ -443,7 +441,7 @@ async def run_completion(env: str, ARS_URL: str,count: int, predicate:List[str],
             print(f'sending mesg to utility_urls at {datetime.datetime.now()}')
             Utility_URLS_map = await smartapi_registry(map,'Utility')
             utility_scrub_list = scrub_utility_list(utility_list, count)
-            report_card = stress_utilities(report_card, Utility_URLS_map, utility_scrub_list)
+            report_card = await stress_utilities(report_card, Utility_URLS_map, utility_scrub_list)
 
     if 'ARS' in component:
         report_card['infores:ars']=[]
